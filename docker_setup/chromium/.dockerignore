@@ -1,0 +1,3 @@
+# ignore chromium folder specifically, or docker build will take too long
+chromium
+depot_tools
