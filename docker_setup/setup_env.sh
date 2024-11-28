@@ -1,4 +1,4 @@
-chmod +x chromium/setup_env.sh endpoint/setup_env.sh mvfst/setup_env.sh 
+chmod +x chromium/setup_env.sh endpoint/setup_env.sh mvfst/setup_env.sh
 cd endpoint
 ./setup_env.sh
 
@@ -30,8 +30,8 @@ cd ../proxygen
 chk_image="proxygen:cn"
 image_name="$(docker ps -a | grep -m 1 $chk_image | awk '{print $2;}')"
 if [ "$image_name" != "$chk_image" ]; then
-  docker run --name proxygen_s -v ./vcpkg:/vcpkg --entrypoint="/bin/bash" -u root proxygen:cn
-  docker run --name proxygen_c -v ./vcpkg:/vcpkg --entrypoint="/bin/bash" -u root proxygen:cn
+  docker run -it --name proxygen_s -v ./vcpkg:/vcpkg --entrypoint="/bin/bash" -u root proxygen:cn
+  docker run -it --name proxygen_c -v ./vcpkg:/vcpkg --entrypoint="/bin/bash" -u root proxygen:cn
 else
   echo "proxygen already setup"
 fi
