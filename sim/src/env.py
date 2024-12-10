@@ -3,6 +3,8 @@ from os import path, mkdir
 from subprocess import Popen, run
 from signal import signal, SIGINT
 from sys import exit
+from re import findall, sub, DOTALL, IGNORECASE
+from time import sleep
 
 
 MVFST_PKG :str = "/vcpkg/packages/proxygen_x64-linux/tools/proxygen/hq"
@@ -15,20 +17,50 @@ SIM_URL :str = "www.example.org"
 OUT_DIR :str = "out"
 HANDSHAKE: str = "handshake"
 RTT: str = "rtt"
-RTT_ITERS: int = 128 # sends a square of this value, i.e., 128*128
+RTT_ITERS: int = 256 # sends a square of this value, i.e., 128*128
 INTERFACE: str = "eth0"
 MVFST_PORT: int = 6666
 QUIC_PORT: int = 6121
 
-# TODO : Use the beautify to test maybe??
+def get_html_content(src_file_path):
+    with open(src_file_path, 'r', encoding='utf-8') as file:
+        content = file.read()
+
+    exclude_pattern = r"<script.*?>.*?</script>"
+    html_pattern = r"<!DOCTYPE html>.*?</html>"
+    cleaned_content = sub(exclude_pattern, '', content, flags=DOTALL | IGNORECASE)
+    return findall(html_pattern, cleaned_content, flags=DOTALL | IGNORECASE)
+
 # TODO : Move the common client and server code here??
-def are_files_identical(out_file, src_file): # brute force approach to compare files, but it does the trick!
-    return path.exists(out_file) and (path.getsize(src_file)-100 < path.getsize(out_file) < path.getsize(src_file)+500)
+def are_files_identical(src_file_path, index_content, debug_out, is_add_i = False):
+    if not path.exists(src_file_path):
+        if is_add_i:
+            return [src_file_path]*RTT_ITERS
+        else:
+            return [src_file_path]
+
+
+    not_working = []
+    matches = get_html_content(src_file_path)
+
+    for i, html in enumerate(matches):
+        if index_content != html:
+            debug_out("index_content", index_content)
+            debug_out("new_html", html)
+            not_working.append((src_file_path + "_" + str(i)) if is_add_i else src_file_path)
+
+    if is_add_i and len(matches) != RTT_ITERS:
+        return [src_file_path]*(len(matches)-RTT_ITERS)
+
+    return not_working
 
 
 class RUN_SIM:
-    def __init__(self, host):
+    def __init__(self, host, is_debug = False):
+        self.debug = is_debug
         self.host = host
+        self.sleep_time = 60
+        self.limit = 0
         self._create_root_folder()
         self._download_files()
 
@@ -50,11 +82,16 @@ class RUN_SIM:
         with open(self.sim_file, 'w') as file:
             for line in content:
                 if not is_copied and ("Content-Length") in line.strip():
-                    file.write('Content-Length: 1304\nX-Original-Url: https://www.example.org/\n')
+                    file.write('Content-Length: 1304\nX-Original-Url: https://%s/\n' % SIM_URL)
                     is_copied = True
                     continue
 
                 file.write(line)
+
+        matches = get_html_content(self.sim_file)
+        for i, html in enumerate(matches):
+            self.index = html
+            break
 
     def run_server(self, run_args, port, pcap_file):
         processes = []
@@ -70,7 +107,7 @@ class RUN_SIM:
 
         try:
             processes.append(Popen(run_args))
-            processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w %s' % pcap_file]))
+            processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w%s' % pcap_file]))
 
             for process in processes:
                 process.wait()
@@ -79,3 +116,24 @@ class RUN_SIM:
             for process in processes:
                 process.terminate()
             exit(1)
+
+    def debug_out(self, *args):
+        if self.debug and self.limit < 5:
+            print(args)
+            self.limit += 1
+
+    def handshake(self):
+        raise NotImplementedError
+
+    def multiple(self):
+        raise NotImplementedError
+
+    def collect_client_data(self):
+        self.handshake()
+        print("Running rtt by sending %d files" % RTT_ITERS**2)
+        self.multiple()
+        if self.debug:
+            sleep(self.sleep_time)
+
+    def start_server(self):
+        raise NotImplementedError
