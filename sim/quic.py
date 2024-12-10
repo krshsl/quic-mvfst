@@ -4,13 +4,13 @@
             Remove (if it exists): Transfer-Encoding: chunked
             Remove (if it exists): Alternate-Protocol: ...
             Add: X-Original-Url: https://www.example.org/
-    client command - /vcpkg/packages/proxygen_x64-linux/tools/proxygen/hq --mode=client --host=127.0.0.1 --path=./index.html
-    server command - /vcpkg/packages/proxygen_x64-linux/tools/proxygen/hq --mode=server --host=127.0.0.1 --static_root=/temp/www.example.org
+    client command - ./out/Debug/epoll_quic_client --host=127.0.0.1 --disable_certificate_verification --num_requests=1 --port=6121 --body http://www.example.org --ignore_errors --one_connection_per_request --version_mismatch_ok > index.html
+    server command - ./out/Debug/epoll_quic_server --certificate_file=net/tools/quic/certs/out/leaf_cert.pem --key_file=net/tools/quic/certs/out/leaf_cert.pkcs8 --allow_unknown_root_cert --quic_response_cache_dir=/tmp/quic-data/www.example.org/
 '''
 
 
 
-from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, RTT_ITERS, RTT, are_files_identical
+from src.env import HANDSHAKE, QUIC_CLIENT, QUIC_PORT, QUIC_SERVER, RUN_SIM, SIM_FILE, SIM_URL, RTT_ITERS, RTT, are_files_identical
 from tempfile import TemporaryDirectory, mkdtemp
 from src.parser import MyParser
 from os import path, walk
@@ -25,10 +25,13 @@ def rtt_mult(arg):
     '''
     temp_dir = mkdtemp(suffix="__"+str(arg[1]), dir=arg[0].name)
     avg = 0
-    # sims = ','.join(["/%s"%SIM_FILE]*RTT_ITERS)
-    for i in range(RTT_ITERS): # easier for file comparision, but ends up taking longer.
+    for i in range(RTT_ITERS):
+        temp_file = path.join(temp_dir, RTT+'_'+str(i))
+        file = open(temp_file, "w") # num_requests can be increased if need be
         start = time()
-        run([MVFST_PKG, '--mode=client', '--path=/%s'%SIM_FILE, '--outdir=%s'%temp_dir, '--host=%s'%arg[2]], capture_output=True)
+        run([QUIC_CLIENT, '--disable_certificate_verification', '--num_requests=1', '--port=6121', \
+            '--ignore_errors', '--one_connection_per_request', '--version_mismatch_ok', \
+            '--host=%s'%arg[2], SIM_URL], stdout=file)
         avg += time()- start
 
     return avg
@@ -39,14 +42,11 @@ def check_mult(arg):
         :param arg: (rtt dir, sim file)
     '''
     not_work = []
-
     sim_file = path.join(arg[0], SIM_FILE)
-    if not are_files_identical(sim_file, arg[1]):
-        not_work.append(sim_file)
 
-    for i in range(1, RTT_ITERS):
+    for i in range(RTT_ITERS):
         curr_file = sim_file + '_' + str(i)
-        if not are_files_identical(curr_file, arg[1]):
+        if are_files_identical(curr_file, arg[1]):
             not_work.append(curr_file)
 
     return not_work
@@ -65,10 +65,14 @@ class CLIENT(RUN_SIM):
         '''
         print("Running handshake...")
         self.hndshk = TemporaryDirectory(prefix=HANDSHAKE, dir=self.out_dir.name)
-        out_file = path.join(self.hndshk.name, SIM_FILE)
+        out_file = path.join(self.hndshk.name, HANDSHAKE)
+        file = open(out_file, "w")
         start = time()
-        run([MVFST_PKG, '--mode=client', '--path=/%s'%SIM_FILE, '--outdir=%s'%self.hndshk.name, '--host=%s'%self.host], capture_output=True)
+        run([QUIC_CLIENT, '--disable_certificate_verification', '--num_requests=1', '--port=6121', \
+            '--ignore_errors', '--one_connection_per_request', '--version_mismatch_ok', \
+            '--host=%s'%self.host, SIM_URL], stdout=file)
         f_time = time() - start
+
         if are_files_identical(out_file, self.sim_file):
             print("handshake works...")
         else:
@@ -103,7 +107,7 @@ class CLIENT(RUN_SIM):
             # print(not_work)
             print('Rtt not working file count : ', len(not_work))
         else:
-            print("Rtt seems to work fine for all files")
+            print("Rtt seems to work fine for all files...")
 
         print("Rtt avg time: ", f_time)
 
@@ -115,9 +119,9 @@ class SERVER(RUN_SIM):
 
     def collect_data(self):
         # keep running the background or whatever...
-        print(self.sim_url_dir)
-        self.run_server([MVFST_PKG, '--mode=server', '-static_root=%s'%self.sim_url_dir, '--host=%s'%self.host], \
-                MVFST_PORT, self.pcap_file)
+        self.run_server([QUIC_SERVER, '--certificate_file=/chromium/src/net/tools/quic/certs/out/leaf_cert.pem', \
+            '--key_file=/chromium/src/net/tools/quic/certs/out/leaf_cert.pkcs8', '--allow_unknown_root_cert', \
+            '--quic_response_cache_dir=%s'%self.sim_url_dir], QUIC_PORT, self.pcap_file)
 
 if __name__ == "__main__":
     parser = MyParser(description = "Run sim suite to collect data")
@@ -130,7 +134,6 @@ if __name__ == "__main__":
         CLIENT(args.host).collect_data()
     else:
         if not (args.pcap_file):
-            parser.error("Pcap_file missing")
+                parser.error("Pcap_file missing")
 
         SERVER(args.host, args.pcap_file).collect_data()
-        print("ensure you move the pcap file")
