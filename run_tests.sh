@@ -31,14 +31,15 @@ fi
 shopt -s nocasematch
 
 lossp=0
+delay=0ms
 throughput=0
 rtt_mode=1
 sim_dir=./../../sim # update as per your location
-folder_structure=$lossp\/$throughput\/$rtt_mode
+folder_structure=$lossp\/$delay\/$throughput\/$rtt_mode
 log_file=$folder_structure/init.log
 pcap_file=$folder_structure/init.pcap
 docker_run="docker run -u root --net $network_name --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v $sim_dir:/sim -v /filer/tmp1/$USER/mvfst:/sim/mvfst -v /filer/tmp1/$USER/quic:/sim/quic"
-entry_point="/bin/bash /sim/start_server.sh $lossp $throughput $lossp $pcap_file"
+entry_point="/bin/bash /sim/start_server.sh $lossp $delay $throughput $rtt_mode $pcap_file"
 client_e_point="python3 /sim/test.py --rtt_mode=$rtt_mode --throughput=$throughput --mode=client"
 # update ip for each iters
 ip_prefix=172.168.150
@@ -52,6 +53,7 @@ if [[ "$1" == "mvfst" ]]; then
     containers=("mvfst_server$lossp" "mvfst_client$lossp")
     image_name=proxygen:cn
     echo "log files at docker_setup/proxygen/mvfst_s/$log_file & docker_setup/proxygen/mvfst_c/$log_file"
+    echo "pcap files folder /filer/tmp1/$USER/mvfst/$pcap_file"
     mkdir -p /filer/tmp1/$USER/mvfst/$folder_structure
 
     chmod +x sim/start_server.sh
@@ -91,6 +93,12 @@ while true; do
         docker stop $c
         docker container remove -f $c
       done
+
+      if [[ "$1" == "mvfst" ]]; then
+        cat docker_setup/proxygen/mvfst_c/$log_file
+      elif [[ "$1" == "quic" ]]; then
+        cat docker_setup/proxygen/quic_c/$log_file
+      fi
       exit 0
     fi
   done
