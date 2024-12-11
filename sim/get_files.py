@@ -4,7 +4,8 @@ from subprocess import run
 class SIM_FILES:
     def __init__(self): # storing everything inside index.html
         self.sim_dir = path.dirname(path.realpath(__file__))
-        self.download_init_file("index.html", "www.google.com", self.google_parser_rule)
+        self.download_init_file("index.html", "www.google.com", self.trnsfr_encode_parser_rule)
+        self.download_init_file("index.html", "www.yahoo.com", self.trnsfr_encode_parser_rule)
         self.download_init_file("index.html", "www.example.org", self.example_parser_rule)
         self.download_init_file("index.html", "demo.borland.com/testsite/stadyn_largepagewithimages.html", self.demo_parser_rule)
 
@@ -13,7 +14,7 @@ class SIM_FILES:
         new_line = 'Content-Length: 1304\nX-Original-Url: https://%s/\n' % sim_url
         return content.replace(old_line, new_line)
 
-    def google_parser_rule(self, content, sim_url):
+    def trnsfr_encode_parser_rule(self, content, sim_url):
         old_line = "Transfer-Encoding: chunked"
         new_line = 'X-Original-Url: https://%s/\n' % sim_url
         return content.replace(old_line, new_line)
@@ -24,11 +25,17 @@ class SIM_FILES:
         return content.replace(old_line, new_line)
 
     def download_init_file(self, sim_file, sim_url, parser_rule):
+        temp_dir = sim_url.split("/")[0] # website name is sufficient
+        sim_url_dir = path.join(self.sim_dir, temp_dir)
+        if path.exists(sim_url_dir):
+            sim_file = path.join(sim_url_dir, sim_file)
+            print(sim_url_dir, sim_file, "%s kb"%(path.getsize(sim_file)/1024))
+            return
+
         temp_file = path.join(self.sim_dir, sim_file)
         run(['wget', '-q', '-O', '%s'%temp_file, '--save-headers', '%s'%sim_url])
 
-        sim_url = sim_url.split("/")[0] # website name is sufficient
-        sim_url_dir = path.join(self.sim_dir, sim_url)
+        sim_url = temp_dir
         if not path.exists(sim_url_dir):
             mkdir(path.join(self.sim_dir, sim_url))
 

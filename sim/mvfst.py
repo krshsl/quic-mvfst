@@ -12,12 +12,13 @@
 
 
 
-from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, are_files_identical
+from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, CREATE_COPY, are_files_identical
+from src.utils import H_Test, R_Test
 from tempfile import TemporaryDirectory, mkdtemp
-from os import path, walk
 from subprocess import run
-from time import time
+from os import path, walk
 from shutil import copy
+from time import time
 
 def rtt_mult(arg):
     '''
@@ -50,11 +51,14 @@ def check_mult(arg):
 class CLIENT(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
-        filename = path.basename(MVFST_PKG)
-        self.client_file = path.join(self.sim_dir.name, filename)
-        copy(MVFST_PKG, self.client_file)
+        if CREATE_COPY:
+            filename = path.basename(MVFST_PKG)
+            self.client_file = path.join(self.sim_dir.name, filename)
+            copy(MVFST_PKG, self.client_file)
+        else:
+            self.client_file = MVFST_PKG
 
-    def handshake(self):
+    def handshake(self) -> H_Test:
         '''
             this function checks for basic handshake
         '''
@@ -73,18 +77,21 @@ class CLIENT(RUN_SIM):
             status = False
 
         self.debug_out("handshake avg time: ", f_time)
-        return f_time, status
+        return H_Test(f_time, status)
 
-    def multiple(self):
+    def multiple(self) -> R_Test:
         return self._multiple(rtt_mult, check_mult)
 
 
 class SERVER(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
-        filename = path.basename(MVFST_PKG)
-        self.server_file = path.join(self.sim_dir.name, filename)
-        copy(MVFST_PKG, self.server_file)
+        if CREATE_COPY:
+            filename = path.basename(MVFST_PKG)
+            self.server_file = path.join(self.sim_dir.name, filename)
+            copy(MVFST_PKG, self.server_file)
+        else:
+            self.server_file = MVFST_PKG
 
     def _start_server(self):
         # keep running the background or whatever...

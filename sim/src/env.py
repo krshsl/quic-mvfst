@@ -1,11 +1,12 @@
+from src.utils import H_Test, R_Test
 from tempfile import TemporaryDirectory
-from multiprocessing import Pool, cpu_count
-from os import path, sep, walk
 from subprocess import Popen, CalledProcessError, run, PIPE
+from re import findall, DOTALL, IGNORECASE
+from multiprocessing import Pool, cpu_count
 from signal import signal, SIGINT
-from sys import exit
-from re import findall, sub, DOTALL, IGNORECASE
+from os import path, sep, walk
 from time import sleep
+from sys import exit
 
 
 MVFST_PKG :str = "/vcpkg/packages/proxygen_x64-linux/tools/proxygen/hq"
@@ -25,15 +26,19 @@ RTT_ITERS: int = 128 # sends a square of this value, i.e., 128*128
 INTERFACE: str = "eth0"
 MVFST_PORT: int = 6666
 QUIC_PORT: int = 6121
+CREATE_COPY: bool = False
 
 def get_html_content(src_file_path):
     with open(src_file_path, 'r', encoding='utf-8') as file:
         content = file.read()
 
-    exclude_pattern = r"<script.*?>.*?</script>"
     html_pattern = r"<!DOCTYPE html>.*?</html>"
-    cleaned_content = sub(exclude_pattern, '', content, flags=DOTALL | IGNORECASE)
-    return findall(html_pattern, cleaned_content, flags=DOTALL | IGNORECASE)
+    '''exclude not needed since we're comparnig the same file???'''
+    # from re import findall, sub, DOTALL, IGNORECASE
+    # exclude_pattern = r"<script.*?>.*?</script>"
+    # cleaned_content = sub(exclude_pattern, '', content, flags=DOTALL | IGNORECASE)
+    # return findall(html_pattern, cleaned_content, flags=DOTALL | IGNORECASE)
+    return findall(html_pattern, content, flags=DOTALL | IGNORECASE)
 
 # TODO : Move the common client and server code here??
 def are_files_identical(src_file_path, run_sim, is_add_i = False):
@@ -69,7 +74,7 @@ class RUN_SIM:
         if args.log:
             self.rtt_iters = 2
         else:
-            self.rtt_iters = 64 if self.test_throughput else RTT_ITERS
+            self.rtt_iters = RTT_ITERS//2 if self.test_throughput else RTT_ITERS
 
         # self.rtt_mode = args.rtt_mode
         self.rtt_mode = 1 # defaulting to 1 atm
@@ -87,36 +92,44 @@ class RUN_SIM:
         self.sim_url = THROUGHPUT_URL if self.test_throughput else SIM_URL
         self.sim_url_dir = path.abspath(path.join(sep, "sim", self.sim_url))
         self.sim_file = path.join(self.sim_url_dir, SIM_FILE)
+        if not path.exists(self.sim_file):
+            print(self.sim_file)
+            raise FileNotFoundError
+
         matches = get_html_content(self.sim_file)
         for i, html in enumerate(matches):
             self.index = html
             break
 
-    def run_server(self, run_args, port):
-        processes = []
+    def signal_handler(self, sig, frame):
+        print("\nStopping processes...")
+        self.processes[0].terminate()
+        self.processes[1].terminate()
+        if not self.pcap_file:
+            stdout, stderr = self.processes[1].communicate()
+            print(stdout, stderr)
+        exit(0)
 
-        def signal_handler(sig, frame):
-            print("\nStopping processes...")
-            for process in processes:
-                process.terminate()
-            exit(0)
+    def run_server(self, run_args, port):
+        self.processes = []
 
         # Attach the signal handler for Ctrl+C
-        signal(SIGINT, signal_handler)
+        signal(SIGINT, self.signal_handler)
 
         try:
-            processes.append(Popen(run_args))
+            self.processes.append(Popen(run_args))
             if not self.no_dump:
                 if self.pcap_file:
-                    processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w%s' % self.pcap_file]))
+                    print(self.pcap_file)
+                    self.processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w%s' % self.pcap_file]))
                 else: # comment this out if you don't want tcp dump
-                    processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot'])) # proceed without appending result
+                    self.processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot'], stdout=PIPE, stderr=PIPE, text=True)) # proceed without appending result
 
-            for process in processes:
+            for process in self.processes:
                 process.wait()
         except Exception as e:
             print(f"Error: {e}")
-            for process in processes:
+            for process in self.processes:
                 process.terminate()
             exit(1)
 
@@ -128,13 +141,13 @@ class RUN_SIM:
         if self.log_level == 2:
             print(args)
 
-    def handshake(self):
+    def handshake(self) -> H_Test:
         raise NotImplementedError
 
-    def multiple(self):
+    def multiple(self) -> R_Test:
         raise NotImplementedError
 
-    def _multiple(self, rtt_mult, check_mult):
+    def _multiple(self, rtt_mult, check_mult) -> R_Test:
         '''
             this function loads the serve by sending files concurrently
         '''
@@ -143,31 +156,31 @@ class RUN_SIM:
         self.rtt = TemporaryDirectory(prefix=RTT, dir=self.out_dir.name)
         params = [(i, self) for i in range(self.rtt_iters)]
         with Pool(cpu_count()) as p:
-            t_time = p.map(rtt_mult, params)
-            f_time = sum(t_time)
+            time_list = p.map(rtt_mult, params)
+            avg_time = sum(time_list)
 
         self.print_out("Verifying rtt...")
         params = [(x[0], self) for x in walk(self.rtt.name, topdown=False)]
         params.pop()
-        not_work = [self.rtt.name]*(len(params)-self.rtt_iters) if len(params) < self.rtt_iters else []
+        fail_list = [self.rtt.name]*(len(params)-self.rtt_iters) if len(params) < self.rtt_iters else []
         with Pool(cpu_count()) as p:
             failures = p.map(check_mult, params)
             for fail in failures:
                 if len(fail):
-                    not_work.extend(fail)
+                    fail_list.extend(fail)
 
-        if len(not_work):
+        if len(fail_list):
             self.debug_out('Rtt does not work for the following...')
-            self.debug_out(not_work)
-            self.print_out('Rtt not working file count : ', len(not_work))
+            self.debug_out(fail_list)
+            self.print_out('Rtt not working file count : ', len(fail_list))
             status = False
         else:
             self.print_out("Rtt seems to work fine for all files")
 
-        self.print_out("Rtt avg time taken: ", f_time)
+        avg_time /= ((self.rtt_iters**2)-len(fail_list))
+        self.print_out("Rtt avg time taken: ", avg_time)
         self.debug_out(params[0])
-        f_time /= (self.rtt_iters**2-len(not_work))
-        return f_time, status, len(not_work)
+        return R_Test(avg_time, status, time_list, len(fail_list), self.rtt_iters)
 
     def _start_server(self):
         raise NotImplementedError
@@ -184,7 +197,7 @@ class RUN_SIM:
         if not self.client_file:
             raise NotImplementedError
 
-        max_tries = 20 # ping 20 times or stop
+        max_tries = 20 # wait for server to start...
         while self._wait() and max_tries:
             sleep(5)
             max_tries -= 1
@@ -193,11 +206,13 @@ class RUN_SIM:
             print("Unable to ping destination")
             exit(1)
 
+        h_test = self.handshake()
+        r_test = self.multiple()
+
+        # show data in end to regex easily!!
         print("Throughput Mode") if self.test_throughput else print("Normal Mode")
-        print(instance, HANDSHAKE, "time", "status")
-        print(instance, HANDSHAKE, self.handshake())
-        print(instance, RTT, "time", "status", "failure length", "rtt_count")
-        print(instance, RTT, self.multiple(), self.rtt_iters**2)
+        h_test.show_data(instance, self.sim_url, (path.getsize(self.sim_file)/1024))
+        r_test.show_data(instance, self.sim_url, (path.getsize(self.sim_file)/1024))
         if self.log_level >= 2:
             sleep(self.sleep_time)
 

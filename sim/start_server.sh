@@ -4,4 +4,4 @@ if [[ $1 -gt 0 ]]; then
     sudo tc qdisc show dev eth0
 fi
 cd /sim
-python3 /sim/test.py --throughput=$3 --rtt_mode=$4 --pcap_file=/$7\/$5 --host=$6 --mode=server --instance=$7
+python3 /sim/test.py --throughput=$3 --pcap_file=/$6\/$4 --host=$5 --mode=server --instance=$6

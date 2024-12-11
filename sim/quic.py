@@ -12,12 +12,13 @@
 
 
 
-from src.env import HANDSHAKE, QUIC_FLDR, QUIC_CLIENT, QUIC_PORT, QUIC_SERVER, RUN_SIM, SIM_FILE, are_files_identical
+from src.env import HANDSHAKE, QUIC_FLDR, QUIC_CLIENT, QUIC_PORT, QUIC_SERVER, RUN_SIM, SIM_FILE, CREATE_COPY, are_files_identical
+from src.utils import H_Test, R_Test
 from tempfile import TemporaryDirectory, mkdtemp
-from os import path
+from shutil import copytree
 from subprocess import run
 from time import time
-from shutil import copytree
+from os import path
 
 def rtt_mult(arg):
     '''
@@ -47,14 +48,18 @@ def check_mult(arg):
 class CLIENT(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
-        filename = path.basename(QUIC_CLIENT)
-        dest_fldr = path.join(self.sim_dir.name, "quic_debug")
-        self.client_file = path.join(dest_fldr, filename)
-        try:
-            copytree(QUIC_FLDR, dest_fldr)
-        except Exception as e:
-            print(e)
-            exit(1)
+        if CREATE_COPY:
+            super().__init__(args)
+            filename = path.basename(QUIC_CLIENT)
+            dest_fldr = path.join(self.sim_dir.name, "quic_debug")
+            self.client_file = path.join(dest_fldr, filename)
+            try:
+                copytree(QUIC_FLDR, dest_fldr)
+            except Exception as e:
+                print(e)
+                exit(1)
+        else:
+            self.client_file =  QUIC_CLIENT
 
     def handshake(self):
         '''
@@ -79,23 +84,26 @@ class CLIENT(RUN_SIM):
             status = False
 
         self.debug_out("handshake avg time: ", f_time)
-        return f_time, status
+        return H_Test(f_time, status)
 
-    def multiple(self):
+    def multiple(self) -> R_Test:
         return self._multiple(rtt_mult, check_mult)
 
 
 class SERVER(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
-        filename = path.basename(QUIC_SERVER)
-        dest_fldr = path.join(self.sim_dir.name, "quic_debug")
-        self.server_file = path.join(dest_fldr, filename)
-        try:
-            copytree(QUIC_FLDR, dest_fldr)
-        except Exception as e:
-            print(e)
-            exit(1)
+        if CREATE_COPY:
+            filename = path.basename(QUIC_SERVER)
+            dest_fldr = path.join(self.sim_dir.name, "quic_debug")
+            self.server_file = path.join(dest_fldr, filename)
+            try:
+                copytree(QUIC_FLDR, dest_fldr)
+            except Exception as e:
+                print(e)
+                exit(1)
+        else:
+            self.server_file = QUIC_SERVER
 
     def _start_server(self):
         # keep running the background or whatever...

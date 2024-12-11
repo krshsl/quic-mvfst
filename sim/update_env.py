@@ -1,4 +1,4 @@
-from src.arg_parser import MyParser
+from src.utils import MyParser
 from subprocess import run
 from src.env import INTERFACE
 

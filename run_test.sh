@@ -4,7 +4,7 @@ if [[ $# -ne 7 ]]; then
     echo '1 - loss as int'
     echo '2 - delay in ms'
     echo '3 - throughput testing 0/1 to disable or enable'
-    echo '4 - 0-rtt mode 0/1 to disable or enable'
+    echo '4 - your init folder name'
     echo '5 - quic/mvfst mode'
     echo '6 - server ip'
     echo '7 - client ip'
@@ -46,18 +46,19 @@ shopt -s nocasematch
 lossp=$1
 delay=$2
 throughput=$3
-rtt_mode=1 # defaulting to 1 atm
+init_fldr=$4
 sim_dir=./../../sim # update as per your location
-folder_structure=$lossp\/$delay\/$throughput\/$rtt_mode
+folder_structure=$init_fldr\/$lossp\/$delay\/$throughput
 log_file=$folder_structure/init.log
 pcap_file=$folder_structure/init.pcap
 docker_run="docker run -u root --net $network_name --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v $sim_dir:/sim -v /filer/tmp1/$USER/mvfst:/mvfst -v /filer/tmp1/$USER/quic:/quic"
-entry_point="/bin/bash /sim/start_server.sh $lossp $delay $throughput $rtt_mode $pcap_file"
-client_e_point="python3 /sim/test.py --rtt_mode=$rtt_mode --throughput=$throughput --mode=client"
+entry_point="/bin/bash /sim/start_server.sh $lossp $delay $throughput $pcap_file"
+client_e_point="python3 /sim/test.py --throughput=$throughput --mode=client"
 # update ip for each iters
 ip_prefix=172.168.150.
 ip_prefix_1=$ip_prefix$6
 ip_prefix_2=$ip_prefix$7
+echo "testing using $ip_prefix_1 & $ip_prefix_2"
 chmod +x sim/start_server.sh
 if [[ "$5" == "mvfst" ]]; then
     containers=("mvfst_server$6" "mvfst_client$7")
@@ -73,6 +74,7 @@ elif [[ "$5" == "quic" ]]; then
     containers=("quic_server$6" "quic_client$7")
     image_name=quic:cn
     echo "log files at docker_setup/chromium/quic_s/$log_file & docker_setup/chromium/quic_c/$log_file"
+    echo "pcap files folder /filer/tmp1/$USER/quic/$pcap_file"
     mkdir -p /filer/tmp1/$USER/quic/$folder_structure
 
     chmod +x sim/start_server.sh
