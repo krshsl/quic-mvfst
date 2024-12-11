@@ -117,4 +117,4 @@ class SERVER(RUN_SIM):
         # keep running the background or whatever...
         self.run_server([QUIC_SERVER, '--certificate_file=/chromium/src/net/tools/quic/certs/out/leaf_cert.pem', \
             '--key_file=/chromium/src/net/tools/quic/certs/out/leaf_cert.pkcs8', '--allow_unknown_root_cert', \
-            '--quic_response_cache_dir=%s'%self.sim_url_dir], QUIC_PORT, self.pcap_file)
+            '--quic_response_cache_dir=%s'%self.sim_url_dir], QUIC_PORT)

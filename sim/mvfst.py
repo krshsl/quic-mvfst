@@ -116,4 +116,4 @@ class SERVER(RUN_SIM):
         # keep running the background or whatever...
         self.print_out(self.sim_url_dir)
         self.run_server([MVFST_PKG, '--mode=server', '-static_root=%s'%self.sim_url_dir, '--host=%s'%self.host], \
-                MVFST_PORT, self.pcap_file)
+                MVFST_PORT)

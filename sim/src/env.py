@@ -62,6 +62,7 @@ class RUN_SIM:
         self.host = args.host
         self.sleep_time = 60
         self.test_throughput = args.throughput
+        self.no_dump = args.no_dump
 
         if args.log:
             self.rtt_iters = 2
@@ -86,7 +87,7 @@ class RUN_SIM:
             self.index = html
             break
 
-    def run_server(self, run_args, port, pcap_file):
+    def run_server(self, run_args, port):
         processes = []
 
         def signal_handler(sig, frame):
@@ -100,7 +101,11 @@ class RUN_SIM:
 
         try:
             processes.append(Popen(run_args))
-            processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w%s' % pcap_file]))
+            if not self.no_dump:
+                if self.pcap_file:
+                    processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot', '-w%s' % self.pcap_file]))
+                else: # comment this out if you don't want tcp dump
+                    processes.append(Popen(['tcpdump', '-i', 'eth0', 'udp', 'port %d' % port ,'-vv', '-X', '-Zroot'])) # proceed without appending result
 
             for process in processes:
                 process.wait()
