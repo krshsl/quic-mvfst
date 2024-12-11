@@ -12,7 +12,7 @@
 
 
 
-from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, RTT_ITERS, RTT, are_files_identical
+from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, RTT, are_files_identical
 from tempfile import TemporaryDirectory, mkdtemp
 from os import path, walk
 from subprocess import run
@@ -22,73 +22,73 @@ from time import time
 def rtt_mult(arg):
     '''
         this function handles running rtt across various threads
-        :param arg: (rtt dir, iter, host addr, rtt_mode)
+        :param arg: (iter, run_sim)
     '''
-    temp_dir = mkdtemp(suffix="__"+str(arg[1]), dir=arg[0].name)
-    avg = 0
-    sims = ','.join(["/%s"%SIM_FILE]*RTT_ITERS)
+    temp_dir = mkdtemp(suffix="__"+str(arg[0]), dir=arg[1].rtt.name)
+    rtt_mode = "true" if arg[1].rtt_mode else "false"
+    sims = ','.join(["/%s"%SIM_FILE]*arg[1].rtt_iters)
     start = time()
-    rtt_mode = "true" if arg[3] else "false"
-    run([MVFST_PKG, '--mode=client', '--path=%s'%sims, '--outdir=%s'%temp_dir, '--early_data=%s'%rtt_mode, '--host=%s'%arg[2]], capture_output=True)
-    avg += time()- start
-
-    return avg
+    run([MVFST_PKG, '--mode=client', '--path=%s'%sims, '--outdir=%s'%temp_dir, '--early_data=%s'%rtt_mode, '--host=%s'%arg[1].host], capture_output=True)
+    return time() - start
 
 def check_mult(arg):
     '''
         this function handles verifying rtt file across various threads
-        :param arg: (rtt dir, sim file content, debug_out (run_sim function)) - use regex to get the index.html content
+        :param arg: (rtt dir, run_sim (class)) - use regex to get the index.html content
     '''
     not_work = []
 
     sim_file = path.join(arg[0], SIM_FILE)
-    not_work.extend(are_files_identical(sim_file, arg[1], arg[2]))
-
-    for i in range(1, RTT_ITERS):
-        curr_file = "%s_%d" % (sim_file, i)
-        not_work.extend(are_files_identical(curr_file, arg[1], arg[2]))
+    not_work.extend(are_files_identical(sim_file, arg[1]))
+    files = [x for x in walk(arg[0], topdown=False)]
+    files.pop()
+    for file in files:
+        not_work.extend(are_files_identical(file, arg[1]))
 
     return not_work
 
 class CLIENT(RUN_SIM):
-    def __init__(self, host, rtt_mode, is_debug = False):
-        super().__init__(host, is_debug)
-        self.rtt_mode = rtt_mode
+    def __init__(self, args):
+        super().__init__(args)
 
     def handshake(self):
         '''
             this function checks for basic handshake
         '''
-        print("Running handshake...")
+        status = True
+        self.print_out("Running handshake...")
         self.hndshk = TemporaryDirectory(prefix=HANDSHAKE, dir=self.out_dir.name)
-        out_file = path.join(self.hndshk.name, SIM_FILE)
         start = time()
         run([MVFST_PKG, '--mode=client', '--path=/%s'%SIM_FILE, '--outdir=%s'%self.hndshk.name, '--host=%s'%self.host, '--early_data=true'], capture_output=True)
         f_time = time() - start
-        if len(are_files_identical(out_file, self.index, self.debug_out)) == 0:
-            print("handshake works...")
+        out_file = path.join(self.hndshk.name, SIM_FILE)
+        if len(are_files_identical(out_file, self)) == 0:
+            self.print_out("handshake works...")
         else:
             self.debug_out(out_file, self.index)
-            print("handshake doesn't work")
+            self.print_out("handshake doesn't work")
+            status = False
 
-        print("handshake avg time: ", f_time)
+        self.debug_out("handshake avg time: ", f_time)
+        return f_time, status
 
     def multiple(self):
         '''
             this function loads the serve by sending files concurrently
         '''
-        print("Running rtt...")
+        status = True
+        self.print_out("Running rtt...")
         self.rtt = TemporaryDirectory(prefix=RTT, dir=self.out_dir.name)
-        params = [(self.rtt, i, self.host, self.rtt_mode) for i in range(RTT_ITERS)]
+        params = [(i, self) for i in range(self.rtt_iters)]
         with Pool(cpu_count()) as p:
             t_time = p.map(rtt_mult, params)
             f_time = sum(t_time)
-            f_time /= RTT_ITERS**2
+            f_time /= self.rtt_iters**2
 
-        print("Verifying rtt...")
-        params = [(x[0], self.index, self.debug_out) for x in walk(self.rtt.name, topdown=False)]
+        self.print_out("Verifying rtt...")
+        params = [(x[0], self) for x in walk(self.rtt.name, topdown=False)]
         params.pop()
-        not_work = []
+        not_work = [self.rtt.name]*(len(params)-self.rtt_iters) if len(params) < self.rtt_iters else []
         with Pool(cpu_count()) as p:
             failures = p.map(check_mult, params)
             for fail in failures:
@@ -96,23 +96,24 @@ class CLIENT(RUN_SIM):
                     not_work.extend(fail)
 
         if len(not_work):
-            # print('Rtt does not work for the following...')
-            # print(not_work)
-            print('Rtt not working file count : ', len(not_work))
+            self.debug_out('Rtt does not work for the following...')
+            self.debug_out(not_work)
+            self.print_out('Rtt not working file count : ', len(not_work))
+            status = False
         else:
-            print("Rtt seems to work fine for all files")
+            self.print_out("Rtt seems to work fine for all files")
 
-        print("Rtt avg time taken: ", f_time)
+        self.print_out("Rtt avg time taken: ", f_time)
         self.debug_out(params[0])
+        return f_time, status, len(not_work)
 
 
 class SERVER(RUN_SIM):
-    def __init__(self, host, pcap_file, is_debug = False):
-        super().__init__(host, is_debug)
-        self.pcap_file = pcap_file
+    def __init__(self, args):
+        super().__init__(args)
 
-    def start_server(self):
+    def _start_server(self):
         # keep running the background or whatever...
-        print(self.sim_url_dir)
+        self.print_out(self.sim_url_dir)
         self.run_server([MVFST_PKG, '--mode=server', '-static_root=%s'%self.sim_url_dir, '--host=%s'%self.host], \
                 MVFST_PORT, self.pcap_file)
