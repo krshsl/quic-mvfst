@@ -46,6 +46,7 @@ class SIM_FILES:
             file.write(content)
 
         remove(temp_file)
-        print(sim_url_dir, sim_file)
+        print(sim_url_dir, sim_file, "%s kb"%(path.getsize(sim_file)/1024))
 
-SIM_FILES()
+if __name__ == "__main__":
+    SIM_FILES()

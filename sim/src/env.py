@@ -1,6 +1,7 @@
 from tempfile import TemporaryDirectory
-from os import path, sep
-from subprocess import Popen
+from multiprocessing import Pool, cpu_count
+from os import path, sep, walk
+from subprocess import Popen, CalledProcessError, run, PIPE
 from signal import signal, SIGINT
 from sys import exit
 from re import findall, sub, DOTALL, IGNORECASE
@@ -8,6 +9,7 @@ from time import sleep
 
 
 MVFST_PKG :str = "/vcpkg/packages/proxygen_x64-linux/tools/proxygen/hq"
+QUIC_FLDR :str = "/chromium/src/out/Debug"
 QUIC_CLIENT :str = "/chromium/src/out/Debug/epoll_quic_client"
 QUIC_SERVER :str = "/chromium/src/out/Debug/epoll_quic_server"
 QUIC_OUT :str = "/chromium/src/out/index.html" # create a sample output ahead of time to compare easily
@@ -69,8 +71,11 @@ class RUN_SIM:
         else:
             self.rtt_iters = 64 if self.test_throughput else RTT_ITERS
 
-        self.rtt_mode = args.rtt_mode
+        # self.rtt_mode = args.rtt_mode
+        self.rtt_mode = 1 # defaulting to 1 atm
         self.pcap_file = args.pcap_file
+        self.server_file = None
+        self.client_file = None
         self._create_root_folder()
         self._set_sim_files()
 
@@ -129,10 +134,65 @@ class RUN_SIM:
     def multiple(self):
         raise NotImplementedError
 
+    def _multiple(self, rtt_mult, check_mult):
+        '''
+            this function loads the serve by sending files concurrently
+        '''
+        status = True
+        self.print_out("Running rtt...")
+        self.rtt = TemporaryDirectory(prefix=RTT, dir=self.out_dir.name)
+        params = [(i, self) for i in range(self.rtt_iters)]
+        with Pool(cpu_count()) as p:
+            t_time = p.map(rtt_mult, params)
+            f_time = sum(t_time)
+
+        self.print_out("Verifying rtt...")
+        params = [(x[0], self) for x in walk(self.rtt.name, topdown=False)]
+        params.pop()
+        not_work = [self.rtt.name]*(len(params)-self.rtt_iters) if len(params) < self.rtt_iters else []
+        with Pool(cpu_count()) as p:
+            failures = p.map(check_mult, params)
+            for fail in failures:
+                if len(fail):
+                    not_work.extend(fail)
+
+        if len(not_work):
+            self.debug_out('Rtt does not work for the following...')
+            self.debug_out(not_work)
+            self.print_out('Rtt not working file count : ', len(not_work))
+            status = False
+        else:
+            self.print_out("Rtt seems to work fine for all files")
+
+        self.print_out("Rtt avg time taken: ", f_time)
+        self.debug_out(params[0])
+        f_time /= (self.rtt_iters**2-len(not_work))
+        return f_time, status, len(not_work)
+
     def _start_server(self):
         raise NotImplementedError
 
+    def _wait(self):
+        command = ['ping', self.host, '-c', '1']
+        try:
+            run(command, check=True, stdout=PIPE, stderr=PIPE)
+            return False
+        except CalledProcessError:
+            return True
+
     def collect_client_data(self, instance):
+        if not self.client_file:
+            raise NotImplementedError
+
+        max_tries = 20 # ping 20 times or stop
+        while self._wait() and max_tries:
+            sleep(5)
+            max_tries -= 1
+
+        if max_tries == 0:
+            print("Unable to ping destination")
+            exit(1)
+
         print("Throughput Mode") if self.test_throughput else print("Normal Mode")
         print(instance, HANDSHAKE, "time", "status")
         print(instance, HANDSHAKE, self.handshake())
@@ -142,5 +202,8 @@ class RUN_SIM:
             sleep(self.sleep_time)
 
     def start_server(self):
+        if not self.server_file:
+            raise NotImplementedError
+
         print("Throughput Mode") if self.test_throughput else print("Normal Mode")
         self._start_server()

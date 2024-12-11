@@ -12,12 +12,12 @@
 
 
 
-from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, RTT, are_files_identical
+from src.env import HANDSHAKE, MVFST_PKG, MVFST_PORT, RUN_SIM, SIM_FILE, are_files_identical
 from tempfile import TemporaryDirectory, mkdtemp
 from os import path, walk
 from subprocess import run
-from multiprocessing import Pool, cpu_count
 from time import time
+from shutil import copy
 
 def rtt_mult(arg):
     '''
@@ -28,7 +28,7 @@ def rtt_mult(arg):
     rtt_mode = "true" if arg[1].rtt_mode else "false"
     sims = ','.join(["/%s"%SIM_FILE]*arg[1].rtt_iters)
     start = time()
-    run([MVFST_PKG, '--mode=client', '--path=%s'%sims, '--outdir=%s'%temp_dir, '--early_data=%s'%rtt_mode, '--host=%s'%arg[1].host], capture_output=True)
+    run([arg[1].client_file, '--mode=client', '--path=%s'%sims, '--outdir=%s'%temp_dir, '--early_data=%s'%rtt_mode, '--host=%s'%arg[1].host], capture_output=True)
     return time() - start
 
 def check_mult(arg):
@@ -50,6 +50,9 @@ def check_mult(arg):
 class CLIENT(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
+        filename = path.basename(MVFST_PKG)
+        self.client_file = path.join(self.sim_dir.name, filename)
+        copy(MVFST_PKG, self.client_file)
 
     def handshake(self):
         '''
@@ -59,7 +62,7 @@ class CLIENT(RUN_SIM):
         self.print_out("Running handshake...")
         self.hndshk = TemporaryDirectory(prefix=HANDSHAKE, dir=self.out_dir.name)
         start = time()
-        run([MVFST_PKG, '--mode=client', '--path=/%s'%SIM_FILE, '--outdir=%s'%self.hndshk.name, '--host=%s'%self.host, '--early_data=true'], capture_output=True)
+        run([self.client_file, '--mode=client', '--path=/%s'%SIM_FILE, '--outdir=%s'%self.hndshk.name, '--host=%s'%self.host, '--early_data=true'], capture_output=True)
         f_time = time() - start
         out_file = path.join(self.hndshk.name, SIM_FILE)
         if len(are_files_identical(out_file, self)) == 0:
@@ -73,44 +76,15 @@ class CLIENT(RUN_SIM):
         return f_time, status
 
     def multiple(self):
-        '''
-            this function loads the serve by sending files concurrently
-        '''
-        status = True
-        self.print_out("Running rtt...")
-        self.rtt = TemporaryDirectory(prefix=RTT, dir=self.out_dir.name)
-        params = [(i, self) for i in range(self.rtt_iters)]
-        with Pool(cpu_count()) as p:
-            t_time = p.map(rtt_mult, params)
-            f_time = sum(t_time)
-            f_time /= self.rtt_iters**2
-
-        self.print_out("Verifying rtt...")
-        params = [(x[0], self) for x in walk(self.rtt.name, topdown=False)]
-        params.pop()
-        not_work = [self.rtt.name]*(len(params)-self.rtt_iters) if len(params) < self.rtt_iters else []
-        with Pool(cpu_count()) as p:
-            failures = p.map(check_mult, params)
-            for fail in failures:
-                if len(fail):
-                    not_work.extend(fail)
-
-        if len(not_work):
-            self.debug_out('Rtt does not work for the following...')
-            self.debug_out(not_work)
-            self.print_out('Rtt not working file count : ', len(not_work))
-            status = False
-        else:
-            self.print_out("Rtt seems to work fine for all files")
-
-        self.print_out("Rtt avg time taken: ", f_time)
-        self.debug_out(params[0])
-        return f_time, status, len(not_work)
+        return self._multiple(rtt_mult, check_mult)
 
 
 class SERVER(RUN_SIM):
     def __init__(self, args):
         super().__init__(args)
+        filename = path.basename(MVFST_PKG)
+        self.server_file = path.join(self.sim_dir.name, filename)
+        copy(MVFST_PKG, self.server_file)
 
     def _start_server(self):
         # keep running the background or whatever...

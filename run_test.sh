@@ -1,4 +1,17 @@
 #!/bin/bash
+if [[ $# -ne 7 ]]; then
+    echo 'Too many/few arguments, expecting one' >&2
+    echo '1 - loss as int'
+    echo '2 - delay in ms'
+    echo '3 - throughput testing 0/1 to disable or enable'
+    echo '4 - 0-rtt mode 0/1 to disable or enable'
+    echo '5 - quic/mvfst mode'
+    echo '6 - server ip'
+    echo '7 - client ip'
+
+    echo 'Running with default arguments!!'
+    set -- "0" "0" "0" "1" "quic" "5" "6"
+fi
 
 # Name of the network and subnet
 network_name="my_bridge_network"
@@ -30,44 +43,41 @@ fi
 
 shopt -s nocasematch
 
-lossp=0
-delay=0ms
-throughput=0
-rtt_mode=1
+lossp=$1
+delay=$2
+throughput=$3
+rtt_mode=1 # defaulting to 1 atm
 sim_dir=./../../sim # update as per your location
 folder_structure=$lossp\/$delay\/$throughput\/$rtt_mode
 log_file=$folder_structure/init.log
 pcap_file=$folder_structure/init.pcap
-docker_run="docker run -u root --net $network_name --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v $sim_dir:/sim -v /filer/tmp1/$USER/mvfst:/sim/mvfst -v /filer/tmp1/$USER/quic:/sim/quic"
+docker_run="docker run -u root --net $network_name --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v $sim_dir:/sim -v /filer/tmp1/$USER/mvfst:/mvfst -v /filer/tmp1/$USER/quic:/quic"
 entry_point="/bin/bash /sim/start_server.sh $lossp $delay $throughput $rtt_mode $pcap_file"
 client_e_point="python3 /sim/test.py --rtt_mode=$rtt_mode --throughput=$throughput --mode=client"
 # update ip for each iters
-ip_prefix=172.168.150
-ip_prefix_1=$ip_prefix.5
-ip_prefix_2=$ip_prefix.6
-ip_prefix_3=$ip_prefix.7
-ip_prefix_4=$ip_prefix.8
-python3 sim/get_files.py
+ip_prefix=172.168.150.
+ip_prefix_1=$ip_prefix$6
+ip_prefix_2=$ip_prefix$7
 chmod +x sim/start_server.sh
-if [[ "$1" == "mvfst" ]]; then
-    containers=("mvfst_server$lossp" "mvfst_client$lossp")
+if [[ "$5" == "mvfst" ]]; then
+    containers=("mvfst_server$6" "mvfst_client$7")
     image_name=proxygen:cn
     echo "log files at docker_setup/proxygen/mvfst_s/$log_file & docker_setup/proxygen/mvfst_c/$log_file"
     echo "pcap files folder /filer/tmp1/$USER/mvfst/$pcap_file"
     mkdir -p /filer/tmp1/$USER/mvfst/$folder_structure
 
     chmod +x sim/start_server.sh
-    cd docker_setup/proxygen; mkdir -p mvfst_s/$folder_structure; $docker_run --ip $ip_prefix_1 -v ./vcpkg:/vcpkg --name mvfst_server$lossp $image_name $entry_point $ip_prefix_1 mvfst > mvfst_s/$log_file 2>&1 &
-    sleep 5; mkdir -p mvfst_c/$folder_structure; $docker_run --ip $ip_prefix_2 -v ./vcpkg:/vcpkg --name mvfst_client$lossp $image_name $client_e_point --host=$ip_prefix_1 --instance=mvfst > mvfst_c/$log_file 2>&1 &
-elif [[ "$1" == "quic" ]]; then
-    containers=("quic_server$lossp" "quic_client$lossp")
+    cd docker_setup/proxygen; mkdir -p mvfst_s/$folder_structure; $docker_run --ip $ip_prefix_1 -v ./vcpkg:/vcpkg --name mvfst_server$6 $image_name $entry_point $ip_prefix_1 mvfst > mvfst_s/$log_file 2>&1 &
+    mkdir -p mvfst_c/$folder_structure; $docker_run --ip $ip_prefix_2 -v ./vcpkg:/vcpkg --name mvfst_client$7 $image_name $client_e_point --host=$ip_prefix_1 --instance=mvfst > mvfst_c/$log_file 2>&1 &
+elif [[ "$5" == "quic" ]]; then
+    containers=("quic_server$6" "quic_client$7")
     image_name=quic:cn
     echo "log files at docker_setup/chromium/quic_s/$log_file & docker_setup/chromium/quic_c/$log_file"
     mkdir -p /filer/tmp1/$USER/quic/$folder_structure
 
     chmod +x sim/start_server.sh
-    cd docker_setup/chromium; mkdir -p quic_s/$folder_structure; $docker_run --ip $ip_prefix_3 -v ./chromium:/chromium -v ./depot_tools:/depot_tools --name quic_server$lossp $image_name $entry_point $ip_prefix_3 quic > quic_s/$log_file 2>&1 &
-    sleep 5; mkdir -p quic_c/$folder_structure; $docker_run --ip $ip_prefix_4 -v ./chromium:/chromium -v ./depot_tools:/depot_tools --name quic_client$lossp $image_name $client_e_point --host=$ip_prefix_3 --instance=quic > quic_c/$log_file 2>&1 &
+    cd docker_setup/chromium; mkdir -p quic_s/$folder_structure; $docker_run --ip $ip_prefix_1 -v ./chromium:/chromium -v ./depot_tools:/depot_tools --name quic_server$6 $image_name $entry_point $ip_prefix_1 quic > quic_s/$log_file 2>&1 &
+    mkdir -p quic_c/$folder_structure; $docker_run --ip $ip_prefix_2 -v ./chromium:/chromium -v ./depot_tools:/depot_tools --name quic_client$7 $image_name $client_e_point --host=$ip_prefix_1 --instance=quic > quic_c/$log_file 2>&1 &
 else
     echo "Pass argumet for instance to run as [mvfst, quic]"
     exit 1
@@ -75,6 +85,7 @@ fi
 
 
 # Monitor the status of containers
+sleep 10
 while true; do
   for container in "${containers[@]}"; do
     # Check if a container has stopped
@@ -84,7 +95,9 @@ while true; do
           docker stop $c
           docker container remove -f $c
         done
-        exit 1
+
+        cat $5\_c/$log_file
+        exit 0
       fi
 
     if [[ "$(docker inspect -f '{{.State.Running}}' $container 2>/dev/null)" == "false" ]]; then
@@ -94,11 +107,7 @@ while true; do
         docker container remove -f $c
       done
 
-      if [[ "$1" == "mvfst" ]]; then
-        cat docker_setup/proxygen/mvfst_c/$log_file
-      elif [[ "$1" == "quic" ]]; then
-        cat docker_setup/proxygen/quic_c/$log_file
-      fi
+      cat $5\_c/$log_file
       exit 0
     fi
   done
