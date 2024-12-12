@@ -22,8 +22,6 @@ def replace_env_links(i):
         file.write(content)
 
 def get_data():
-    all_outs = {}
-    missed_outs = {}
     l_d = [(0,0)]
     loss = [1, 5, 10]
     delay = [10, 50, 100, 200]
@@ -34,6 +32,8 @@ def get_data():
     l_d.reverse() # start w/ the slowest???
     t_p = [str(i) for i in range(2)] # enable or disable mode
     test_file = path.join(source_dir, "run_test.sh")
+    success_csv = path.join(source_dir, "success.csv")
+    fail_csv = path.join(source_dir, "fail.csv")
     run(['chmod', '+x', test_file])
     SIM_FILES()
     for i in range(2): # avoid pcap generation if you're going above 2
@@ -60,11 +60,9 @@ def get_data():
                     match = search(pattern, stdout)
                     if match:
                         print(match.group(0))
-                        temp_out = all_outs.get(curr_mode)
-                        if not temp_out:
-                            all_outs[curr_mode] = [match.group(0)]
-                        else:
-                            temp_out.append(match.group(0))
+                        with open(success_csv, "a") as file:
+                            file.write(curr_mode+"\n")
+                            file.write(match.group(0)+"\n")
                     else:
                         print("Some error occurred???")
                         print(f"Output from {mode[2]}:")
@@ -72,26 +70,8 @@ def get_data():
                         print(f"Error from {mode[2]}:")
                         print(stderr)
                         print()
-
-                        temp_out = missed_outs.get(curr_mode)
-                        if not temp_out:
-                            missed_outs[curr_mode] = [mode[2]]
-                        else:
-                            temp_out.append(mode[2])
-
-    return all_outs, missed_outs
-
-def format_csv(all_outs, missed_outs):
-    for map, csv in [(all_outs, "success.csv"), (missed_outs, "fail.csv")]:
-        csv_f = path.join(source_dir, csv)
-        with open(csv_f, "w") as file:
-            for case in map:
-                file.write(case+"\n")
-                for out in map[case]:
-                    file.write(out+"\n")
-
-                file.write("\n")
-
+                        with open(fail_csv, "a") as file:
+                            file.write(curr_mode+"\n")
+                            file.write(mode[2]+"\n")
 if __name__ == "__main__":
-    all_outs, missed_outs = get_data()
-    format_csv(all_outs, missed_outs)
+    get_data()
