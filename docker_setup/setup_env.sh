@@ -1,7 +1,7 @@
 #!/bin/bash
-
+TMP_FLDR=/filer/tmp1
 test_envs="mvfst quic"
-docker_run="docker run -it --entrypoint=/bin/bash -u root --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v ./../../sim:/sim -v /filer/tmp1/$USER/mvfst:/sim/mvfst  -v /filer/tmp1/$USER/quic:/sim/quic"
+docker_run="docker run -it --entrypoint=/bin/bash -u root --cap-add=NET_ADMIN --cap-add=NET_RAW --privileged -v ./../../sim:/sim -v $TMP_FLDR/$USER/mvfst:/sim/mvfst  -v $TMP_FLDR/$USER/quic:/sim/quic"
 
 function quic {
     cd chromium
@@ -43,9 +43,9 @@ wait
 cd ..
 for test_env in $test_envs; do
     cd ../sim
-    mkdir -p /filer/tmp1/$USER/$test_env
+    mkdir -p $TMP_FLDR/$USER/$test_env
     if [ ! -d "$test_env" ]; then
-        ln -s /filer/tmp1/$USER/$test_env $test_env
+        ln -s $TMP_FLDR/$USER/$test_env $test_env
     else
         echo "sym link already setup for $test_env"
     fi

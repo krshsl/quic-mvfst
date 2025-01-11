@@ -11,7 +11,6 @@ class MyParser(ArgumentParser):
         exit(2)
 
 configs = ['start', 'stop']
-# images = ['proxygen:cn', 'mvfst:cn', 'quic:cn']
 images = ['proxygen:cn', 'quic:cn']
 
 def config_container(mode):
